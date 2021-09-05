@@ -1,0 +1,121 @@
+#!/usr/local/bin/bash
+
+set -e
+trap "exit" INT
+ScriptDirectory=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+
+
+##################################################################################
+########## Make edits according to your setup and needs under this line ##########
+
+ExportDirectory="/Users/username/VideoStorage/Export"
+
+declare -A cameras
+cameras[cam1]=8db88c62-7fd0-3737-aa4e-dae19bab87ea
+cameras[cam2]=245faecc-8b37-36dc-8f7b-f5097d30bc63
+
+GenerateListOnly="No"
+
+ExportToday="No"
+
+ScheduleDailyExecution="No"
+ScheduleTime="03:00"
+
+########## Make edits according to your setup and needs above this line ##########
+##################################################################################
+
+
+if [ "${ScheduleDailyExecution,,}" == "yes" ]; then
+    CronHour=$(echo $ScheduleTime | cut -d':' -f1 | sed 's/^0//')
+    CronMinute=$(echo $ScheduleTime | cut -d':' -f2 | sed 's/^0//')
+    CronCommand="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    CronJob="$CronMinute $CronHour * * * '$CronCommand'  > /dev/null 2>&1"
+    ( crontab -l | grep -v -F "$CronCommand" ; echo "$CronJob" ) | crontab -
+fi
+
+if [ ! -d "$ScriptDirectory/UniFiExporterFiles" ]; then mkdir "$ScriptDirectory/UniFiExporterFiles"; fi
+if [ ! -d "$ScriptDirectory/UniFiExporterFiles/Log" ]; then mkdir "$ScriptDirectory/UniFiExporterFiles/Log"; fi
+if [ ! -d "$ScriptDirectory/UniFiExporterFiles/Temp" ]; then mkdir "$ScriptDirectory/UniFiExporterFiles/Temp"; fi
+if [ ! -d "$ScriptDirectory/UniFiExporterFiles/Temp/List" ]; then mkdir "$ScriptDirectory/UniFiExporterFiles/Temp/List"; fi
+if [ ! -d "$ExportDirectory" ]; then mkdir "$ExportDirectory"; fi
+
+if [ ! -f "$ScriptDirectory/UnifiExporterFiles/ffmpeg" ]; then
+    echo
+    echo Downloading FFMPEG...
+    curl --location --progress-bar https://evermeet.cx/ffmpeg/get/zip > "$ScriptDirectory/UnifiExporterFiles/Temp/ffmpeg-latest-macos64-static.zip"
+    echo
+    echo Unpacking FFMPEG...
+    unzip -qq "$ScriptDirectory/UnifiExporterFiles/Temp/ffmpeg-latest-macos64-static.zip" -d "$ScriptDirectory/UnifiExporterFiles"
+    rm -f "$ScriptDirectory/UnifiExporterFiles/Temp/ffmpeg-latest-macos64-static.zip"
+fi
+
+current_date=$(date +%Y-%m-%d)
+
+echo
+echo Renaming chunks...
+for i in "$ScriptDirectory"/????????-????-????-????-????????????; do
+    find "$i" -type f -iname "*.mp4" -exec bash -c 'mv "$1" "${1%.mp4}".ts' - '{}' \;
+done
+
+rm -f "$ScriptDirectory/UniFiExporterFiles/Temp/List"/*
+echo
+echo Generating list of files...
+for i in "$ScriptDirectory"/????????-????-????-????-????????????; do
+    for j in "$i"/????; do
+        for k in "$j"/??; do
+            for l in "$k"/??; do
+                year=$(basename "$j")
+                month=$(basename "$k")
+                day=$(basename "$l")
+                camera_uuid=$(basename "$i")
+                for m in "$l"/*.ts; do
+                    for n in "${!cameras[@]}"; do
+                        if [ "$camera_uuid" == "${cameras[$n]}" ]; then
+                            echo file "'$m'" >> "$ScriptDirectory/UniFiExporterFiles/Temp/List"/$year-$month-$day-$n.txt
+                        fi
+                    done
+                done
+            done
+        done
+    done
+done
+
+if [ "${ExportToday,,}" == "no" ]; then
+    if [ -f "$ScriptDirectory/UniFiExporterFiles/Temp/List"/"$current_date"-* ]; then
+        rm -f "$ScriptDirectory/UniFiExporterFiles/Temp/List"/"$current_date"-*
+    fi
+fi
+
+if [ "${GenerateListOnly,,}" == "yes" ]; then
+    for i in "$ScriptDirectory/UniFiExporterFiles/Temp/List"/*.txt; do
+        touch "$ScriptDirectory/UniFiExporterFiles/Log"/$(basename "$i")
+    done
+    
+    echo
+    echo Renaming chunks back...
+    echo
+    for i in "$ScriptDirectory"/????????-????-????-????-????????????; do
+        find "$i" -type f -iname "*.ts" -exec bash -c 'mv "$1" "${1%.ts}".mp4' - '{}' \;
+    done
+    
+    exit
+fi
+
+echo
+for i in "$ScriptDirectory/UniFiExporterFiles/Temp/List"/*.txt; do
+    if [ ! -f "$ScriptDirectory/UniFiExporterFiles/Log"/$(basename "$i") ]; then
+        echo Processing $(basename "$i" .txt)...
+        "$ScriptDirectory/UniFiExporterFiles/ffmpeg" -y -hide_banner -loglevel panic -stats -f concat -safe 0 -i "$ScriptDirectory/UniFiExporterFiles/Temp/List"/$(basename "$i") -c copy "$ScriptDirectory/UniFiExporterFiles/Temp"/$(basename "$i" .txt).ts
+        "$ScriptDirectory/UniFiExporterFiles/ffmpeg" -y -hide_banner -loglevel panic -stats -i "$ScriptDirectory/UniFiExporterFiles/Temp"/$(basename "$i" .txt).ts -c copy -movflags +faststart "$ScriptDirectory/UniFiExporterFiles/Temp"/$(basename "$i" .txt).mp4
+        mv -f "$ScriptDirectory/UniFiExporterFiles/Temp"/$(basename "$i" .txt).mp4 "$ExportDirectory"
+        rm -f "$ScriptDirectory/UniFiExporterFiles/Temp"/$(basename "$i" .txt).ts
+        touch "$ScriptDirectory/UniFiExporterFiles/Log"/$(basename "$i")
+        echo
+    fi
+done
+
+echo Renaming chunks back...
+echo
+for i in "$ScriptDirectory"/????????-????-????-????-????????????; do
+    find "$i" -type f -iname "*.ts" -exec bash -c 'mv "$1" "${1%.ts}".mp4' - '{}' \;
+done
