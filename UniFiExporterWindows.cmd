@@ -5,7 +5,7 @@ setlocal EnableDelayedExpansion
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 :::::::::: Make edits according to your setup and needs under this line ::::::::::
 
-set ExportDirectory=C:\Users\username\Export
+set ExportDirectory=C:\Users\username\VideoStorage\Export
 
 set 8db88c62-7fd0-3737-aa4e-dae19bab87ea=cam1
 set 245faecc-8b37-36dc-8f7b-f5097d30bc63=cam2
